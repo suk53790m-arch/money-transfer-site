@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>[YOUR BRAND] - Send money</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&display=swap">
+<style>
+:root{--g:#0B3D2E;--bg:#F6F8F5;--m:#DDEBE3;--a:#F2B134;--line:#C9D8CF}
+*{box-sizing:border-box}
+body{margin:0;font-family:Manrope,Arial,sans-serif;background:var(--bg);color:var(--g)}
+header{display:flex;justify-content:space-between;align-items:center;padding:20px 5vw;flex-wrap:wrap;gap:12px}
+.brand{font-weight:800;font-size:22px}
+main{max-width:1000px;margin:0 auto;padding:0 5vw 64px}
+.card{background:#fff;border-radius:24px;padding:28px;box-shadow:0 12px 40px rgba(11,61,46,.12);max-width:460px;margin:0 auto 32px}
+h1{font-size:40px;line-height:1.1;margin:24px 0 8px;text-align:center}
+h2{margin:0 0 16px;font-size:22px}
+label{display:block;font-size:14px;font-weight:600;margin:0 0 6px}
+input,select{width:100%;height:52px;border:2px solid var(--line);border-radius:14px;padding:0 14px;font:600 16px Manrope,Arial,sans-serif;color:var(--g);background:#fff;margin-bottom:14px}
+button{width:100%;height:54px;border:0;border-radius:14px;background:var(--a);color:var(--g);font:800 17px Manrope,Arial,sans-serif;cursor:pointer}
+button.ghost{background:var(--m);width:auto;height:42px;padding:0 18px;font-size:15px}
+.msg{margin-top:12px;padding:12px;border-radius:12px;background:var(--m);font-weight:600;line-height:1.5}
+.err{background:#F8D9D4}
+.banner{background:var(--a);text-align:center;padding:8px;font-weight:700;font-size:14px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+td,th{padding:10px 6px;border-bottom:1px solid var(--line);text-align:left}
+.hide{display:none}
+.tabs{display:flex;gap:8px;margin-bottom:16px}
+</style>
+</head>
+<body>
+<div id="banner" class="banner hide">TEST MODE - no real money is sent</div>
+<header><div class="brand">[YOUR BRAND]</div><button id="logout" class="ghost hide">Log out</button></header>
+<main>
+<h1>Send money to any bank</h1>
+
+<div id="auth" class="card">
+  <div class="tabs"><button class="ghost" id="tabLogin">Log in</button><button class="ghost" id="tabReg">Register</button></div>
+  <div id="nameRow" class="hide"><label for="name">Full name</label><input id="name" autocomplete="name"></div>
+  <label for="email">Email</label><input id="email" type="email" autocomplete="email">
+  <label for="pass">Password</label><input id="pass" type="password" autocomplete="current-password">
+  <button id="authBtn">Log in</button>
+  <div id="authMsg"></div>
+</div>
+
+<div id="app" class="hide">
+  <div class="card">
+    <h2>Send money</h2>
+    <label for="amount">You send</label><input id="amount" inputmode="decimal" value="1000">
+    <div id="quote" class="msg" style="margin:0 0 14px">Enter an amount</div>
+    <label for="bank">Send to</label><select id="bank"></select>
+    <label for="rname">Recipient name</label><input id="rname">
+    <label for="acc">Account number / phone</label><input id="acc">
+    <button id="send">Send now</button>
+    <div id="sendMsg"></div>
+  </div>
+  <div class="card" style="max-width:none">
+    <h2>My transfers</h2>
+    <div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>To</th><th>Amount</th><th>Status</th></tr></thead><tbody id="rows"></tbody></table></div>
+  </div>
+</div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let token = localStorage.getItem('token'), mode = 'login', banks = [];
+const api = async (url, body) => {
+  const r = await fetch(url, { method: body ? 'POST' : 'GET',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+    body: body ? JSON.stringify(body) : undefined });
+  const d = await r.json().catch(() => ({}));
+  if (r.status === 401 && token) { logout(); }
+  if (!r.ok) throw new Error(d.error || 'Something went wrong');
+  return d;
+};
+const show = (el, text, err) => { el.className = 'msg' + (err ? ' err' : ''); el.textContent = text; };
+function setMode(m) {
+  mode = m; $('nameRow').classList.toggle('hide', m !== 'reg');
+  $('authBtn').textContent = m === 'reg' ? 'Create account' : 'Log in'; $('authMsg').textContent = ''; $('authMsg').className = '';
+}
+$('tabLogin').onclick = () => setMode('login'); $('tabReg').onclick = () => setMode('reg');
+$('authBtn').onclick = async () => {
+  try {
+    const d = await api(mode === 'reg' ? '/api/register' : '/api/login',
+      { name: $('name').value, email: $('email').value, password: $('pass').value });
+    token = d.token; localStorage.setItem('token', token); start();
+  } catch (e) { show($('authMsg'), e.message, true); }
+};
+function logout() { token = null; localStorage.removeItem('token'); $('auth').classList.remove('hide'); $('app').classList.add('hide'); $('logout').classList.add('hide'); }
+$('logout').onclick = logout;
+async function refreshQuote() {
+  const a = parseFloat($('amount').value.replace(/,/g, ''));
+  if (!(a > 0)) return show($('quote'), 'Enter an amount');
+  try { const q = await api('/api/quote', { amount: a }); show($('quote'), `Fee ${q.fee} · Rate ${q.rate} · Recipient gets ${q.receive}`); }
+  catch (e) { show($('quote'), e.message, true); }
+}
+async function loadRows() {
+  const list = await api('/api/transfers');
+  $('rows').innerHTML = '';
+  list.forEach((t) => {
+    const tr = document.createElement('tr');
+    [new Date(t.createdAt).toLocaleString(), (banks.find((b) => b.id === t.bankId) || {}).name + ' · ' + t.recipientName, t.amount, t.status]
+      .forEach((v) => { const td = document.createElement('td'); td.textContent = v; tr.appendChild(td); });
+    $('rows').appendChild(tr);
+  });
+}
+$('amount').oninput = refreshQuote;
+$('send').onclick = async () => {
+  try {
+    const t = await api('/api/transfers', { amount: parseFloat($('amount').value.replace(/,/g, '')),
+      bankId: $('bank').value, account: $('acc').value, recipientName: $('rname').value });
+    show($('sendMsg'), 'Transfer ' + t.status); loadRows();
+  } catch (e) { show($('sendMsg'), e.message, true); }
+};
+async function start() {
+  const info = await api('/api/info'); banks = info.banks;
+  $('banner').classList.toggle('hide', info.mode !== 'mock');
+  $('bank').innerHTML = ''; banks.forEach((b) => { const o = document.createElement('option'); o.value = b.id; o.textContent = b.name; $('bank').appendChild(o); });
+  $('auth').classList.add('hide'); $('app').classList.remove('hide'); $('logout').classList.remove('hide');
+  refreshQuote(); loadRows();
+}
+if (token) start().catch(logout);
+</script>
+</body>
+</html>
